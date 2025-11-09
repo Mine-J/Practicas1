@@ -315,8 +315,7 @@ def mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_cra
     print(linea)
 
 def generar_recomendaciones(detalles):
-    recomendaciones = []
-    # más limpio y rápido para coincidencia exacta
+    recomendaciones = []  
     if "No tiene mayúsculas" in detalles:
         recomendaciones.append("Incluye letras mayúsculas para mayor complejidad.")
     if "No tiene minúsculas" in detalles:
@@ -333,6 +332,10 @@ def generar_recomendaciones(detalles):
         recomendaciones.append("Evita incluir años o fechas.")
     if any("pwnedpasswords" in d for d in detalles):
         recomendaciones.append("Contraseña filtrada: cámbiala y usa un gestor de contraseñas para generar y guardar una contraseña única.")  
+
+    
+    if any("Menos de 8 caracteres" in d for d in detalles):
+        recomendaciones.append("Aumenta la longitud a al menos 12-16 caracteres; 16+ es recomendable para mayor seguridad.")
 
     if not recomendaciones:
         recomendaciones.append("¡Excelente! Tu contraseña es muy sólida.")
