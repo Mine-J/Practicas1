@@ -1,4 +1,3 @@
-
 import csv
 import hashlib
 import math
@@ -6,6 +5,7 @@ import os
 import re
 import requests
 import time
+from dotenv import load_dotenv
 
 def cargar_csv(ruta_archivo):
     psswd = set()
@@ -28,61 +28,75 @@ def calcular_heuristico(psswd_introducida, csv_psswd):
     puntuacion = 0
     detalles = []
     
+    load_dotenv()
+    PUNTOS_LONG_16 = int(os.getenv("puntuacionHeuristicoLongitudMayor16"))
+    PUNTOS_LONG_12 = int(os.getenv("puntuacionHeuristicoLongitudMayor12"))
+    PUNTOS_LONG_8  = int(os.getenv("puntuacionHeuristicoLongitudMayor8"))
+    PUNTOS_MAYUSCULAS = int(os.getenv("puntuacionHeuristicoMayusculas", "1"))
+    PUNTOS_MINUSCULAS = int(os.getenv("puntuacionHeuristicoMinusculas", "1"))
+    PUNTOS_NUMEROS     = int(os.getenv("puntuacionHeuristicoNumeros", "1"))
+    PUNTOS_SIMBOLOS    = int(os.getenv("puntuacionHeuristicoSimbolos", "2"))
+    PUNTOS_CSV         = int(os.getenv("puntuacionHeuristicoCSV", "2"))
+    PUNTOS_LEET        = int(os.getenv("puntuacionHeuristicoLeetSpeak", "3"))
+    PUNTOS_FECHAS      = int(os.getenv("puntuacionHeuristicoFechas", "2"))
+    PUNTOS_FILTRADA    = int(os.getenv("puntuacionHeuristicoFiltrada", "5"))
+
     # Longitud
     if len(psswd_introducida) >= 16:
-        puntuacion += 3
+        puntuacion += PUNTOS_LONG_16
     elif len(psswd_introducida) >= 12:
-        puntuacion += 2
+        puntuacion += PUNTOS_LONG_12
     elif len(psswd_introducida) >= 8:
-        puntuacion += 1
+        puntuacion += PUNTOS_LONG_8
     else:
         detalles.append("Menos de 8 caracteres (0) puntos")
     
     # Tipos de caracteres
     if any(c.islower() for c in psswd_introducida):
-        puntuacion += 1
+        puntuacion += PUNTOS_MINUSCULAS
     else:
         detalles.append("No tiene minúsculas")
         
     if any(c.isupper() for c in psswd_introducida):
-        puntuacion += 1
+        puntuacion += PUNTOS_MAYUSCULAS
     else:
         detalles.append("No tiene mayúsculas")
         
     if any(c.isdigit() for c in psswd_introducida):
-        puntuacion += 1
+        puntuacion += PUNTOS_NUMEROS
     else:
         detalles.append("No tiene números")
 
     if any(c in '!@#$%^&*()-_=+[]{}|;:,.<>?/' for c in psswd_introducida):
-        puntuacion += 2
+        puntuacion += PUNTOS_SIMBOLOS
     else:
         detalles.append("No tiene símbolos")
     
     # Palabras comunes
-    
-    resultado, palabra = is_csv_psswd(psswd_introducida, csv_psswd)
-    # is_csv_psswd puede devolver False o (True, palabra)
+    palabras_comunes_detectadas = []
+    resultado, palabras = is_csv_psswd(psswd_introducida, csv_psswd)
+    # is_csv_psswd devuelve (True/False, [lista_palabras])
     if not resultado:
-        puntuacion += 2
+        puntuacion += PUNTOS_CSV
     else:
-        puntuacion -= 2
-        detalles.append(f"Contiene palabra común ('{palabra}') (-2) puntos")
+        puntuacion -= PUNTOS_CSV
+        palabras_comunes_detectadas = palabras
+        detalles.append(f"Contiene palabra(s) común(es) ({len(palabras)}) (-2) puntos")
 
     # Leet speak
     if psswd_refactorizada(psswd_introducida, csv_psswd):
-        puntuacion -= 3
+        puntuacion -= PUNTOS_LEET
         detalles.append("Usa leet speak con palabra común (p@ssw0rd) (-3) puntos")
     
     # Años
     if contiene_fecha(psswd_introducida):
-        puntuacion -= 2
+        puntuacion -= PUNTOS_FECHAS
         detalles.append("Contiene año (1900-2099) (-2) puntos")
     
     # Comprobar pwnedpasswords para la contraseña tal cual
     encontrado, cantidad = verificar_psswd_en_api(psswd_introducida)
     if encontrado:
-        puntuacion -= 5
+        puntuacion -= PUNTOS_FILTRADA
         detalles.append(f"Contraseña encontrada en pwnedpasswords ({cantidad} veces) (-5) puntos")
     else:
         # Si no se encuentra, también comprobar la versión normalizada (por si usa leet speak)
@@ -90,7 +104,7 @@ def calcular_heuristico(psswd_introducida, csv_psswd):
         if psswd_normalizada != psswd_introducida:
             encontrado_norm, cantidad_norm = verificar_psswd_en_api(psswd_normalizada)
             if encontrado_norm:
-                puntuacion -= 5
+                puntuacion -= PUNTOS_FILTRADA
                 detalles.append(f"Contraseña equivalente tras normalizar leet ('{psswd_normalizada}') encontrada en pwnedpasswords ({cantidad_norm} veces) (-5) puntos")
             
 
@@ -114,19 +128,24 @@ def calcular_heuristico(psswd_introducida, csv_psswd):
         nivel = "Muy Fuerte"
         emoji = "💚"
     
-    return nivel, puntuacion, emoji, detalles
+    return nivel, puntuacion, emoji, detalles, palabras_comunes_detectadas
 
 def is_csv_psswd(psswd, csv_psswd):
-    """Comprueba si la contraseña contiene una palabra común completa (o como substring)."""
+    """Comprueba si la contraseña contiene una palabra común completa (o como substring).
+    Devuelve (True, [lista_palabras]) si encuentra coincidencias, (False, []) si no."""
         
     if not csv_psswd:
-        return False
-
+        return False, []
+ 
     psswd_lower = psswd.lower()
+    palabras_encontradas = []
     for palabra in csv_psswd:
         if palabra and palabra in psswd_lower:
-            return True, palabra
-    return False, ""
+            palabras_encontradas.append(palabra)
+    
+    if palabras_encontradas:
+        return True, palabras_encontradas
+    return False, []
 
 def contiene_fecha(psswd):
     """Detecta años entre 1900 y 2099"""
@@ -242,12 +261,12 @@ def mostrar_pantalla_inicio():
 
 def calcular_entropia(psswd):
     """Calcula la entropía de la contraseña en bits"""
-    # Determinar el tamaño del alfabeto
+    
     combinaciones = 0
     if any(c.islower() for c in psswd):
-        combinaciones += 26
+        combinaciones += 27
     if any(c.isupper() for c in psswd):
-        combinaciones += 26
+        combinaciones += 27
     if any(c.isdigit() for c in psswd):
         combinaciones += 10
     if any(c in '!@#$%^&*()-_=+[]{}|;:,.<>?/`~"\\\'' for c in psswd):
@@ -262,8 +281,8 @@ def calcular_entropia(psswd):
 
 def estimar_tiempo_crackeo(entropia):
     """Estima el tiempo para crackear basado en la entropía"""
-    # Asumiendo 10 mil millones de intentos por segundo (GPU moderna)
-    intentos_por_segundo = 10_000_000_000
+    # Asumiendo 40 mil millones de intentos por segundo (GPU moderna)
+    intentos_por_segundo = 40_000_000_000
     
     combinaciones = 2 ** entropia
     segundos = combinaciones / intentos_por_segundo
@@ -285,11 +304,12 @@ def estimar_tiempo_crackeo(entropia):
     else:
         return f"{int(segundos/(31536000*1000000))} millones de años"
 
-def mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_crackeo):
+def mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_crackeo, palabras_comunes_detectadas):
     ancho, alto = obtener_dimensiones_terminal()
     
     # Calcular espacio vertical necesario
-    lineas_contenido = 11 + len(detalles)
+    lineas_palabras = len(palabras_comunes_detectadas) + 2 if palabras_comunes_detectadas else 0
+    lineas_contenido = 11 + len(detalles) + lineas_palabras
     espacio_superior = max(0, (alto - lineas_contenido) // 2)
     
     # Limpiar y añadir espacio superior
@@ -313,6 +333,14 @@ def mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_cra
     for r in generar_recomendaciones(detalles):
         print(f"• {r}".center(ancho))
     print(linea)
+    
+    # Mostrar palabras comunes detectadas si las hay
+    if palabras_comunes_detectadas:
+        print("PALABRAS COMUNES DETECTADAS".center(ancho))
+        print(linea)
+        for palabra in palabras_comunes_detectadas:
+            print(f"• {palabra}".center(ancho))
+        print(linea)
 
 def generar_recomendaciones(detalles):
     recomendaciones = []  
@@ -365,10 +393,10 @@ def main():
             limpiar_consola()
             break
 
-        nivel, score, emoji, detalles = calcular_heuristico(psswd, csv_psswd)
+        nivel, score, emoji, detalles, palabras_comunes = calcular_heuristico(psswd, csv_psswd)
         entropia = calcular_entropia(psswd)
         tiempo_crackeo = estimar_tiempo_crackeo(entropia)
-        mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_crackeo)
+        mostrar_resultado(psswd, nivel, score, emoji, detalles, entropia, tiempo_crackeo, palabras_comunes)
         respuesta = input("\n¿Quieres evaluar otra contraseña? (s/n): ").strip().lower()
 
         if respuesta not in ('s', 'si', 'y', 'yes', ''):
